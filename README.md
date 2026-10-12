@@ -35,7 +35,8 @@ Secrets live only in untracked env files. Templates:
 | `MONGODB_URI` | MongoDB Atlas connection string (required) |
 | `JWT_SECRET` | Token signing secret, 32+ random chars in production (required) |
 | `GEMINI_API_KEY` | Google AI Studio key; without it AI endpoints return 503 and everything else works |
-| `GEMINI_MODEL` | Defaults to `gemini-2.5-flash` |
+| `GEMINI_MODEL` | Defaults to `gemini-flash-latest` |
+| `GEMINI_FALLBACK_MODELS` | Tried in order when the main model is busy, rate limited or retired (default `gemini-3.8-flash,gemini-3.1-flash-lite`) |
 | `APP_TIMEZONE` | IANA zone that defines "today" and when midnight is (default `Asia/Kolkata`) |
 | `ROLLOVER_CRON` | Rollover schedule in `APP_TIMEZONE`, default `0 0 * * *` |
 | `CORS_ORIGINS` | Comma-separated web origins allowed to call the API |

@@ -28,7 +28,12 @@ const env = {
   jwtSecret: process.env.JWT_SECRET || '',
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
   geminiApiKey: process.env.GEMINI_API_KEY || '',
-  geminiModel: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+  geminiModel: process.env.GEMINI_MODEL || 'gemini-flash-latest',
+  // Tried in order when the main model is overloaded, rate limited or retired.
+  geminiFallbackModels: (process.env.GEMINI_FALLBACK_MODELS ?? 'gemini-3.8-flash,gemini-3.1-flash-lite')
+    .split(',')
+    .map((m) => m.trim())
+    .filter(Boolean),
 };
 
 // Validate the settings the server cannot run without. Called from server.js so

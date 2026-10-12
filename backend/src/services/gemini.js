@@ -86,31 +86,51 @@ function parsePlan(text) {
   return result.data;
 }
 
-async function generatePlan(prompt, { deadline, today }) {
-  const ai = getClient();
-  let response;
-  try {
-    response = await ai.models.generateContent({
-      model: env.geminiModel,
-      contents: buildPrompt(prompt, { deadline, today }),
-      config: {
-        systemInstruction: SYSTEM_INSTRUCTION,
-        responseMimeType: 'application/json',
-        responseSchema,
-        temperature: 0.4,
-        abortSignal: AbortSignal.timeout(60000),
-      },
-    });
-  } catch (err) {
-    if (err instanceof HttpError) throw err;
-    console.error('[gemini] request failed', err);
-    const status = err.status === 429 ? 429 : 502;
-    throw new HttpError(
-      status,
-      status === 429 ? 'AI rate limit reached, try again shortly' : 'Could not reach the AI service'
-    );
-  }
-  return parsePlan(response.text);
+// Statuses where another model may succeed: overloaded (503), rate limited
+// (429), transient server errors, or a model retired for this key (404).
+const RETRYABLE = new Set([404, 429, 500, 502, 503, 504]);
+const TOTAL_TIMEOUT_MS = 70000;
+
+function modelChain() {
+  return [...new Set([env.geminiModel, ...env.geminiFallbackModels])];
 }
 
-module.exports = { generatePlan, parsePlan, buildPrompt, responseSchema };
+// Tries the configured model, then each fallback, within one overall deadline.
+async function generatePlan(prompt, { deadline, today }, { client } = {}) {
+  const ai = client || getClient();
+  const signal = AbortSignal.timeout(TOTAL_TIMEOUT_MS);
+  let lastStatus = 502;
+
+  for (const model of modelChain()) {
+    if (signal.aborted) break;
+    try {
+      const response = await ai.models.generateContent({
+        model,
+        contents: buildPrompt(prompt, { deadline, today }),
+        config: {
+          systemInstruction: SYSTEM_INSTRUCTION,
+          responseMimeType: 'application/json',
+          responseSchema,
+          temperature: 0.4,
+          abortSignal: signal,
+        },
+      });
+      return parsePlan(response.text);
+    } catch (err) {
+      if (err instanceof HttpError) throw err;
+      lastStatus = err.status || 502;
+      console.error(`[gemini] ${model} failed (${lastStatus}): ${err.message}`);
+      if (!RETRYABLE.has(lastStatus)) break;
+    }
+  }
+
+  if (signal.aborted) throw new HttpError(504, 'The AI took too long to respond, please try again');
+  if (lastStatus === 429) throw new HttpError(429, 'AI rate limit reached, try again shortly');
+  if (lastStatus === 503) throw new HttpError(503, 'The AI service is busy right now, try again in a minute');
+  if (lastStatus === 401 || lastStatus === 403) {
+    throw new HttpError(502, 'The server\'s Gemini API key was rejected');
+  }
+  throw new HttpError(502, 'Could not reach the AI service');
+}
+
+module.exports = { generatePlan, parsePlan, buildPrompt, modelChain, responseSchema };
