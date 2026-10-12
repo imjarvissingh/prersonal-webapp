@@ -90,19 +90,26 @@ function parsePlan(text) {
 // (429), transient server errors, or a model retired for this key (404).
 const RETRYABLE = new Set([404, 429, 500, 502, 503, 504]);
 const TOTAL_TIMEOUT_MS = 70000;
+// A single hung model must not use up the whole budget meant for the fallbacks.
+const ATTEMPT_TIMEOUT_MS = 30000;
 
 function modelChain() {
   return [...new Set([env.geminiModel, ...env.geminiFallbackModels])];
 }
 
 // Tries the configured model, then each fallback, within one overall deadline.
-async function generatePlan(prompt, { deadline, today }, { client } = {}) {
+async function generatePlan(
+  prompt,
+  { deadline, today },
+  { client, attemptTimeoutMs = ATTEMPT_TIMEOUT_MS } = {}
+) {
   const ai = client || getClient();
   const signal = AbortSignal.timeout(TOTAL_TIMEOUT_MS);
   let lastStatus = 502;
 
   for (const model of modelChain()) {
     if (signal.aborted) break;
+    const attemptSignal = AbortSignal.any([signal, AbortSignal.timeout(attemptTimeoutMs)]);
     try {
       const response = await ai.models.generateContent({
         model,
@@ -112,13 +119,14 @@ async function generatePlan(prompt, { deadline, today }, { client } = {}) {
           responseMimeType: 'application/json',
           responseSchema,
           temperature: 0.4,
-          abortSignal: signal,
+          abortSignal: attemptSignal,
         },
       });
       return parsePlan(response.text);
     } catch (err) {
       if (err instanceof HttpError) throw err;
-      lastStatus = err.status || 502;
+      // An attempt that timed out on its own is treated like an overloaded model.
+      lastStatus = err.status || (attemptSignal.aborted ? 503 : 502);
       console.error(`[gemini] ${model} failed (${lastStatus}): ${err.message}`);
       if (!RETRYABLE.has(lastStatus)) break;
     }

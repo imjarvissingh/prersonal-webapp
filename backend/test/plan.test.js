@@ -74,3 +74,29 @@ test('generatePlan does not retry a rejected key', async () => {
   await assert.rejects(generatePlan('Launch a blog', { today: '2026-10-12' }, { client }), /key was rejected/);
   assert.equal(client.calls.length, 1);
 });
+
+test('generatePlan moves on when a model hangs', async () => {
+  const calls = [];
+  const client = {
+    models: {
+      generateContent({ model, config }) {
+        calls.push(model);
+        if (calls.length === 1) {
+          return new Promise((_, reject) =>
+            config.abortSignal.addEventListener('abort', () => reject(new Error('This operation was aborted')))
+          );
+        }
+        return Promise.resolve({ text: JSON.stringify(raw) });
+      },
+    },
+  };
+  // AbortSignal.timeout timers are unref'd; keep the loop alive like a running server would.
+  const keepAlive = setInterval(() => {}, 1000);
+  try {
+    const plan = await generatePlan('Launch a blog', { today: '2026-10-12' }, { client, attemptTimeoutMs: 50 });
+    assert.equal(plan.title, 'Launch blog');
+  } finally {
+    clearInterval(keepAlive);
+  }
+  assert.equal(calls.length, 2);
+});
