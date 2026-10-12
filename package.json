@@ -1,0 +1,13 @@
+{
+  "name": "prersonal-webapp",
+  "private": true,
+  "description": "Dev Tracker monorepo: Express API, Next.js web app and Flutter iOS app",
+  "scripts": {
+    "setup": "./setup.sh",
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:web": "npm --prefix web run dev",
+    "lint": "npm --prefix backend run lint && npm --prefix web run lint",
+    "test": "npm --prefix backend test",
+    "build:web": "npm --prefix web run build"
+  }
+}
